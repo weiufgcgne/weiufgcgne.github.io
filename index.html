@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sync-Presenter Pro</title>
+    <title>Sync-Presenter Ultra + Time</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root { --bg-color: #000000; --text-color: #ffffff; --accent: #007aff; --glass-bg: rgba(255, 255, 255, 0.05); --glass-border: rgba(255, 255, 255, 0.1); --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; }
@@ -16,22 +16,27 @@
         button { background: #fff; color: #000; border: none; padding: 14px; border-radius: 14px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 10px; transition: 0.2s; }
         button:hover { opacity: 0.9; transform: scale(0.98); }
         button.secondary { background: transparent; color: white; border: 1px solid var(--glass-border); }
+        button.toggle-on { background: var(--accent); color: white; border: none; }
         #app-view { display: none; width: 100%; height: 100%; flex-direction: column; padding: 25px; box-sizing: border-box; }
         .workspace { display: flex; gap: 20px; flex: 1; min-height: 0; margin-top: 20px; }
-        .sidebar { width: 320px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
+        .sidebar { width: 320px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
         .main-stage { flex: 1; position: relative; background: #080808; border-radius: 24px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
         video { max-width: 100%; max-height: 100%; outline: none; }
-        .timeline { position: absolute; bottom: 30px; left: 30px; right: 30px; height: 8px; background: rgba(255,255,255,0.15); border-radius: 4px; }
+        
+        /* TIMELINE & TIME DISPLAY */
+        .controls-overlay { position: absolute; bottom: 30px; left: 30px; right: 30px; pointer-events: none; }
+        .time-display { color: #fff; font-size: 12px; font-weight: 500; margin-bottom: 8px; font-variant-numeric: tabular-nums; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        .timeline { height: 8px; background: rgba(255,255,255,0.15); border-radius: 4px; position: relative; }
         .progress-fill { height: 100%; background: #fff; width: 0%; border-radius: 4px; }
         .marker { position: absolute; top: 0; width: 2px; height: 100%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+        
         .status-dot { width: 10px; height: 10px; background: #34c759; border-radius: 50%; display: inline-block; margin-right: 8px; opacity: 0; transition: opacity 0.3s; }
-        .section-title { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-top: 10px; }
+        .section-title { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; margin-bottom: 5px; }
     </style>
 </head>
 <body>
 
     <script>
-        // --- CONFIGURATION ---
         const SB_URL = 'https://pcuovwubibafsvtmgjhe.supabase.co'; 
         const SB_KEY = 'sb_publishable_QX082-88Cx0-4Ipg5gXp3g__NUz2bWm'; 
         const supabaseClient = supabase.createClient(SB_URL, SB_KEY);
@@ -47,49 +52,53 @@
 
     <div id="app-view">
         <div style="display:flex; justify-content: space-between; align-items: center;">
-            <div>
-                <span id="save-indicator" class="status-dot"></span>
-                <h2 style="margin:0; display: inline-block;">Espace de Travail</h2>
-            </div>
+            <div><span id="save-indicator" class="status-dot"></span><h2 style="margin:0; display: inline-block;">Dashboard</h2></div>
             <button onclick="logout()" class="secondary" style="width:auto; margin:0; padding:10px 20px">Déconnexion</button>
         </div>
         
         <div class="workspace">
             <div class="sidebar glass-panel">
-                
-                <div class="section-title">Vidéo</div>
-                <button onclick="loadVideoFromUrl()">Lien Direct (Cloud)</button>
-                <button class="secondary" onclick="document.getElementById('file-input').click()">Fichier Local (PC)</button>
+                <div class="section-title">Contrôles</div>
+                <button id="btn-free-nav" class="secondary" onclick="toggleFreeNav()">Navigation Libre : OFF</button>
+                <button id="btn-speed" class="secondary" onclick="cycleSpeed()">Vitesse : x1</button>
+                <button onclick="toggleFullscreen()">Plein Écran</button>
+
+                <div class="section-title">Source</div>
+                <button onclick="loadVideoFromUrl()">Lien Cloud Direct</button>
+                <button class="secondary" onclick="document.getElementById('file-input').click()">Fichier Local</button>
                 <input type="file" id="file-input" accept="video/*" style="display:none" onchange="handleFile(this)">
 
-                <div class="section-title">Paliers (secondes)</div>
-                <input type="text" id="input-timings" placeholder="ex: 10, 25, 40" oninput="handleTimingsChange()">
+                <div class="section-title">Paliers (s)</div>
+                <input type="text" id="input-timings" placeholder="10, 25, 40" oninput="handleTimingsChange()">
 
                 <div style="flex-grow: 1;"></div>
-
                 <div class="section-title">Sécurité</div>
-                <input type="password" id="new-password" placeholder="Nouveau mot de passe">
-                <button class="secondary" style="font-size: 12px; padding: 8px;" onclick="changePassword()">Mettre à jour le mot de passe</button>
+                <input type="password" id="new-password" placeholder="Nouveau MDP">
+                <button class="secondary" style="font-size: 11px; padding: 10px;" onclick="changePassword()">Mettre à jour</button>
             </div>
 
-            <div class="main-stage">
+            <div class="main-stage" id="video-container">
                 <video id="main-video" crossorigin="anonymous" playsinline></video>
-                <div class="timeline"><div class="progress-fill" id="fill"></div></div>
+                <div class="controls-overlay">
+                    <div class="time-display" id="time-text">00:00 / 00:00</div>
+                    <div class="timeline"><div class="progress-fill" id="fill"></div></div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        let userEmail = null, marks = [], stopPoint = null, currentUrl = null;
+        let userEmail = null, marks = [], stopPoint = null, currentUrl = null, isFreeNav = false, playbackSpeed = 1;
+        const speeds = [1, 1.25, 1.5, 2];
         const video = document.getElementById('main-video');
+        const videoContainer = document.getElementById('video-container');
 
-        // --- AUTH & SÉCURITÉ ---
+        // --- AUTH ---
         async function handleLogin() {
             const email = document.getElementById('email-field').value;
             const password = document.getElementById('pass-field').value;
             const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-            if (error) alert(error.message);
-            else { userEmail = data.user.email; await loadCloudData(); showApp(); }
+            if (error) alert(error.message); else { userEmail = data.user.email; await loadCloudData(); showApp(); }
         }
 
         async function handleSignUp() {
@@ -101,48 +110,69 @@
 
         async function changePassword() {
             const newPwd = document.getElementById('new-password').value;
-            if (newPwd.length < 6) return alert("Le mot de passe doit faire au moins 6 caractères.");
-            
             const { error } = await supabaseClient.auth.updateUser({ password: newPwd });
-            if (error) alert(error.message);
-            else { alert("Mot de passe mis à jour !"); document.getElementById('new-password').value = ""; }
+            if (error) alert(error.message); else { alert("Mot de passe mis à jour !"); document.getElementById('new-password').value = ""; }
+        }
+
+        // --- UTILITAIRES ---
+        function formatTime(seconds) {
+            if (isNaN(seconds)) return "00:00";
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function cycleSpeed() {
+            let currentIndex = speeds.indexOf(playbackSpeed);
+            playbackSpeed = speeds[(currentIndex + 1) % speeds.length];
+            video.playbackRate = playbackSpeed;
+            document.getElementById('btn-speed').innerText = `Vitesse : x${playbackSpeed}`;
+        }
+
+        function toggleFreeNav() {
+            isFreeNav = !isFreeNav;
+            const btn = document.getElementById('btn-free-nav');
+            btn.innerText = isFreeNav ? "Navigation Libre : ON" : "Navigation Libre : OFF";
+            btn.className = isFreeNav ? "toggle-on" : "secondary";
+            stopPoint = null;
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) videoContainer.requestFullscreen();
+            else document.exitFullscreen();
         }
 
         // --- GESTION VIDÉO ---
         function loadVideoFromUrl(urlFromCloud = null) {
-            let url = urlFromCloud || prompt("Collez l'URL directe de votre vidéo (Supabase Storage, Cloudinary, etc.) :");
-            if (url) {
-                video.src = url;
-                video.load();
-                currentUrl = url;
-                if (!urlFromCloud) saveToCloud();
-                video.onloadedmetadata = refreshMarkers;
+            let url = urlFromCloud || prompt("URL directe de la vidéo :");
+            if (url) { 
+                video.src = url; 
+                video.load(); 
+                video.playbackRate = playbackSpeed;
+                currentUrl = url; 
+                if (!urlFromCloud) saveToCloud(); 
+                video.onloadedmetadata = refreshMarkers; 
             }
         }
 
         function handleFile(input) {
             const file = input.files[0];
-            if(file) {
-                video.src = URL.createObjectURL(file);
-                currentUrl = null; // Local = pas d'URL sauvegardée
-                saveToCloud();
-                video.onloadedmetadata = refreshMarkers;
+            if(file) { 
+                video.src = URL.createObjectURL(file); 
+                video.playbackRate = playbackSpeed;
+                currentUrl = null; 
+                saveToCloud(); 
+                video.onloadedmetadata = refreshMarkers; 
             }
         }
 
-        // --- PERSISTENCE SUPABASE ---
+        // --- SYNC ---
         async function saveToCloud() {
             if (!userEmail) return;
-            const timings = document.getElementById('input-timings').value;
             const { error } = await supabaseClient.from('settings').upsert({ 
-                email: userEmail, timings_data: timings, video_url: currentUrl 
+                email: userEmail, timings_data: document.getElementById('input-timings').value, video_url: currentUrl 
             }, { onConflict: 'email' });
-
-            if(!error) {
-                const dot = document.getElementById('save-indicator');
-                dot.style.opacity = "1";
-                setTimeout(() => dot.style.opacity = "0", 1000);
-            }
+            if(!error) { document.getElementById('save-indicator').style.opacity = "1"; setTimeout(() => document.getElementById('save-indicator').style.opacity = "0", 1000); }
         }
 
         async function loadCloudData() {
@@ -155,7 +185,6 @@
             }
         }
 
-        // --- LECTEUR & LOGIQUE ---
         function handleTimingsChange() {
             marks = document.getElementById('input-timings').value.split(',').map(t => parseFloat(t.trim())).filter(t => !isNaN(t)).sort((a,b)=>a-b);
             refreshMarkers();
@@ -174,7 +203,7 @@
         }
 
         function watch() {
-            if(stopPoint !== null && video.currentTime >= stopPoint) {
+            if(!isFreeNav && stopPoint !== null && video.currentTime >= stopPoint) {
                 video.pause(); video.currentTime = stopPoint; stopPoint = null;
             } else { requestAnimationFrame(watch); }
         }
@@ -183,6 +212,7 @@
             if(e.target.tagName === 'INPUT') return;
             if(e.code === 'Space' || e.code === 'ArrowRight') {
                 e.preventDefault();
+                if(isFreeNav) { video.paused ? video.play() : video.pause(); return; }
                 const next = marks.find(t => t > video.currentTime + 0.1);
                 stopPoint = (next !== undefined) ? next : video.duration;
                 video.play(); watch();
@@ -194,7 +224,11 @@
             }
         };
 
-        video.ontimeupdate = () => { document.getElementById('fill').style.width = (video.currentTime / video.duration * 100) + '%'; };
+        video.ontimeupdate = () => { 
+            document.getElementById('fill').style.width = (video.currentTime / video.duration * 100) + '%'; 
+            document.getElementById('time-text').innerText = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
+        };
+        
         function showApp() { document.getElementById('view-auth').classList.remove('active'); document.getElementById('app-view').style.display = 'flex'; }
         function logout() { supabaseClient.auth.signOut(); location.reload(); }
     </script>

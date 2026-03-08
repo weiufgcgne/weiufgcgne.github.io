@@ -20,21 +20,22 @@
         .workspace { display: flex; gap: 20px; flex: 1; min-height: 0; margin-top: 20px; }
         .sidebar { width: 320px; display: flex; flex-direction: column; gap: 15px; }
         .main-stage { flex: 1; position: relative; background: #080808; border-radius: 24px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        video { max-width: 100%; max-height: 100%; outline: none; }
+        video { max-width: 100%; max-height: 100%; outline: none; background: #000; }
         .timeline { position: absolute; bottom: 30px; left: 30px; right: 30px; height: 8px; background: rgba(255,255,255,0.15); border-radius: 4px; }
         .progress-fill { height: 100%; background: #fff; width: 0%; border-radius: 4px; }
         .marker { position: absolute; top: 0; width: 2px; height: 100%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
         .status-dot { width: 10px; height: 10px; background: #34c759; border-radius: 50%; display: inline-block; margin-right: 8px; opacity: 0; transition: opacity 0.3s; }
-        .import-box { border: 1px solid var(--glass-border); padding: 15px; border-radius: 18px; cursor: pointer; transition: 0.2s; background: rgba(255,255,255,0.03); }
-        .import-box:hover { background: rgba(255,255,255,0.08); }
+        .import-box { border: 1px solid var(--glass-border); padding: 15px; border-radius: 18px; cursor: pointer; transition: 0.2s; background: rgba(255,255,255,0.03); text-align: left; }
+        .import-box:hover { background: rgba(255,255,255,0.08); border-color: var(--accent); }
+        .loader { font-size: 12px; color: var(--accent); display: none; margin-top: 5px; }
     </style>
 </head>
 <body>
 
     <script>
-        // --- CONFIGURATION ---
+        // --- CONFIGURATION À REMPLACER ---
         const SB_URL = 'https://pcuovwubibafsvtmgjhe.supabase.co'; 
-        const SB_KEY = 'sb_publishable_QX082-88Cx0-4Ipg5gXp3g__NUz2bWm'; // Utilisez la clé anon/publishable [cite: 2026-02-06]
+        const SB_KEY = 'sb_publishable_QX082-88Cx0-4Ipg5gXp3g__NUz2bWm'; 
         const supabaseClient = supabase.createClient(SB_URL, SB_KEY);
     </script>
 
@@ -57,20 +58,21 @@
         
         <div class="workspace">
             <div class="sidebar glass-panel">
-                <p style="margin:0; font-size: 14px; color: #888;">Paliers (ex: 12, 35, 60)</p>
-                <input type="text" id="input-timings" placeholder="0, 15, 30" oninput="handleTimingsChange()">
+                <p style="margin:0; font-size: 14px; color: #888;">Paliers (secondes, séparées par virgule)</p>
+                <input type="text" id="input-timings" placeholder="10, 25, 45" oninput="handleTimingsChange()">
                 
                 <hr style="width:100%; border:0; border-top:1px solid #222; margin:10px 0;">
 
-                <div class="import-box" style="border-color: var(--accent);" onclick="loadVideoFromUrl()">
-                    <p style="margin: 0; font-weight: 600; color: var(--accent);">🔗 Vidéo Google Drive</p>
-                    <p style="margin: 5px 0 0 0; font-size: 11px; color: #666;">Synchronisé sur votre compte</p>
+                <div class="import-box" onclick="loadVideoFromUrl()">
+                    <p style="margin: 0; font-weight: 600; color: var(--accent);">🔗 Vidéo Cloud (Drive/Lien)</p>
+                    <p style="margin: 5px 0 0 0; font-size: 11px; color: #666;">Sauvegardé sur votre compte</p>
+                    <div id="drive-loader" class="loader">Téléchargement en cours...</div>
                 </div>
 
                 <div class="import-box" onclick="document.getElementById('file-input').click()">
-                    <input type="file" id="file-input" accept="video/mp4" style="display:none" onchange="handleFile(this)">
-                    <p style="margin: 0; font-weight: 600;">📁 Fichier Local (PC)</p>
-                    <p style="margin: 5px 0 0 0; font-size: 11px; color: #666;">Uniquement sur cet ordinateur</p>
+                    <input type="file" id="file-input" accept="video/*" style="display:none" onchange="handleFile(this)">
+                    <p style="margin: 0; font-weight: 600;">📁 Fichier Local</p>
+                    <p style="margin: 5px 0 0 0; font-size: 11px; color: #666;">Rapide, mais non synchronisé</p>
                 </div>
             </div>
 
@@ -93,8 +95,7 @@
             const email = document.getElementById('email-field').value;
             const password = document.getElementById('pass-field').value;
             const { error } = await supabaseClient.auth.signUp({ email, password });
-            if (error) alert(error.message);
-            else alert("Vérifiez vos emails !");
+            if (error) alert(error.message); else alert("Vérifiez vos emails !");
         }
 
         async function handleLogin() {
@@ -105,33 +106,51 @@
             else { userEmail = data.user.email; await loadCloudData(); showApp(); }
         }
 
-        // --- VIDÉO ---
+        // --- VIDÉO & CONTOURNEMENT CORS ---
         function getDirectDriveUrl(shareUrl) {
             const match = shareUrl.match(/\/d\/([\w-]+)/) || shareUrl.match(/id=([\w-]+)/);
             return match ? `https://drive.google.com/uc?export=download&id=${match[1]}` : shareUrl;
         }
 
+        async function loadVideoFromUrl(urlFromCloud = null) {
+            let url = urlFromCloud || prompt("Collez le lien Google Drive (en mode public) :");
+            if (!url) return;
+
+            const loader = document.getElementById('drive-loader');
+            if (loader) loader.style.display = "block";
+
+            try {
+                const directUrl = getDirectDriveUrl(url);
+                // On télécharge en Blob pour simuler un fichier local et éviter les blocages CORS du lecteur
+                const response = await fetch(directUrl);
+                if (!response.ok) throw new Error("Accès Drive refusé");
+                
+                const blob = await response.blob();
+                video.src = URL.createObjectURL(blob);
+                video.load();
+
+                currentDriveUrl = url;
+                if (!urlFromCloud) saveToCloud();
+                video.onloadedmetadata = refreshMarkers;
+            } catch (e) {
+                console.error(e);
+                alert("Erreur : Google bloque l'accès direct. Assurez-vous que le lien est bien en 'Tous les utilisateurs disposant du lien'.");
+            } finally {
+                if (loader) loader.style.display = "none";
+            }
+        }
+
         function handleFile(input) {
             const file = input.files[0];
             if(file) {
-                currentDriveUrl = null; // On annule le lien Drive si on charge en local
+                currentDriveUrl = null;
                 video.src = URL.createObjectURL(file);
                 video.onloadedmetadata = refreshMarkers;
                 saveToCloud();
             }
         }
 
-        async function loadVideoFromUrl(urlFromCloud = null) {
-            let url = urlFromCloud || prompt("Collez le lien de partage Google Drive :");
-            if (url) {
-                currentDriveUrl = url;
-                video.src = getDirectDriveUrl(url);
-                video.load();
-                if (!urlFromCloud) saveToCloud();
-            }
-        }
-
-        // --- SYNC ---
+        // --- SYNCHRONISATION ---
         async function saveToCloud() {
             if (!userEmail) return;
             const timings = document.getElementById('input-timings').value;
@@ -165,8 +184,11 @@
             }
         }
 
-        // --- LOGIQUE ---
-        function showApp() { document.getElementById('view-auth').classList.remove('active'); document.getElementById('app-view').style.display = 'flex'; }
+        // --- INTERFACE & LECTEUR ---
+        function showApp() { 
+            document.getElementById('view-auth').classList.remove('active'); 
+            document.getElementById('app-view').style.display = 'flex'; 
+        }
         
         function refreshMarkers() {
             document.querySelectorAll('.marker').forEach(m => m.remove());
